@@ -1,71 +1,93 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
-const demoAnalysis = {
+type Profile = {
+  problem?: string;
+  goal?: string;
+  year?: string;
+};
+
+const fallbackAnalysis = {
   overall: 68,
   technical: 61,
   projects: 54,
   resume: 76,
   interview: 58,
   summary:
-    "You have a solid starting point, but your placement readiness is being held back by project depth, interview confidence, and structured technical preparation.",
+    "You have a good starting point, but a few focused improvements can significantly strengthen your placement readiness.",
   gaps: [
     {
       title: "Project depth",
       description:
-        "Your projects need stronger real-world problem solving and measurable outcomes.",
+        "Your projects need stronger real-world problem solving and clearer outcomes.",
       priority: "High",
       action:
-        "Strengthen one flagship project with features, impact and a clear demo.",
+        "Strengthen one flagship project with one useful feature and a clear demo.",
     },
     {
       title: "Interview confidence",
       description:
-        "Your preparation needs more practice explaining your work clearly.",
+        "More structured interview practice can improve your communication.",
       priority: "High",
       action:
-        "Practice 5 interview questions every day with the AI Coach.",
+        "Practice five interview questions every day.",
     },
     {
       title: "Technical consistency",
       description:
-        "Your fundamentals are developing, but your preparation needs a regular routine.",
+        "Your technical preparation would benefit from a regular routine.",
       priority: "Medium",
       action:
-        "Follow a focused daily technical practice schedule.",
+        "Choose one role-relevant skill and practice it for 30–45 minutes daily.",
     },
   ],
   aiUsed: false,
+  mode: "fallback",
 };
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body: Profile = await request.json();
 
-    const problem = body?.problem || "General placement preparation";
-    const goal = body?.goal || "Get placement ready";
-    const year = body?.year || "College student";
+    const problem =
+      typeof body?.problem === "string" && body.problem.trim()
+        ? body.problem.trim()
+        : "General placement preparation";
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const goal =
+      typeof body?.goal === "string" && body.goal.trim()
+        ? body.goal.trim()
+        : "Get placement ready";
 
-    // No API key = safe demo mode
+    const year =
+      typeof body?.year === "string" && body.year.trim()
+        ? body.year.trim()
+        : "College student";
+
+    const apiKey = process.env.GEMINI_API_KEY;
+
     if (!apiKey) {
-      return NextResponse.json(demoAnalysis, { status: 200 });
+      return NextResponse.json(fallbackAnalysis, {
+        status: 200,
+      });
     }
 
-    const openai = new OpenAI({
+    const ai = new GoogleGenAI({
       apiKey,
     });
+
+    const model =
+      process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
     const prompt = `
 You are Student Copilot, an AI placement-readiness assistant.
 
-Analyze this student:
+Analyze this college student's placement preparation.
 
-Problem:
+Student problem:
 ${problem}
 
-Goal:
+Student goal:
 ${goal}
 
 Academic year:
@@ -73,13 +95,14 @@ ${year}
 
 Return ONLY valid JSON.
 
-Required JSON format:
+Use this exact structure:
+
 {
-  "overall": number,
-  "technical": number,
-  "projects": number,
-  "resume": number,
-  "interview": number,
+  "overall": 0,
+  "technical": 0,
+  "projects": 0,
+  "resume": 0,
+  "interview": 0,
   "summary": "string",
   "gaps": [
     {
@@ -104,69 +127,117 @@ Required JSON format:
 }
 
 Rules:
-- Scores must be between 0 and 100.
-- Keep the response practical and student-friendly.
-- Give exactly 3 gaps.
-- Do not diagnose medical or mental-health conditions.
+- Scores must be integers from 0 to 100.
+- Return exactly 3 gaps.
+- Make the gaps relevant to the student's problem.
+- Make the actions practical and specific.
+- Keep summary under 60 words.
+- Do not invent personal information.
+- Do not give medical or mental-health diagnoses.
 `;
 
     try {
-      const response = await openai.responses.create({
-        model: process.env.OPENAI_MODEL || "gpt-5",
-        input: prompt,
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        },
       });
 
-      const text = response.output_text?.trim();
+      const rawText = response.text?.trim();
 
-      if (!text) {
-        return NextResponse.json(demoAnalysis, { status: 200 });
+      if (!rawText) {
+        return NextResponse.json(fallbackAnalysis, {
+          status: 200,
+        });
       }
 
-      // Remove accidental markdown code fences
-      const cleaned = text
-        .replace(/^```json/i, "")
-        .replace(/^```/i, "")
-        .replace(/```$/i, "")
+      const cleaned = rawText
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/i, "")
         .trim();
 
       const parsed = JSON.parse(cleaned);
 
-      const result = {
-        overall: Number(parsed.overall ?? demoAnalysis.overall),
-        technical: Number(parsed.technical ?? demoAnalysis.technical),
-        projects: Number(parsed.projects ?? demoAnalysis.projects),
-        resume: Number(parsed.resume ?? demoAnalysis.resume),
-        interview: Number(parsed.interview ?? demoAnalysis.interview),
-        summary: String(parsed.summary ?? demoAnalysis.summary),
-        gaps:
-          Array.isArray(parsed.gaps) && parsed.gaps.length >= 1
-            ? parsed.gaps.slice(0, 3)
-            : demoAnalysis.gaps,
-        aiUsed: true,
-      };
-
-      return NextResponse.json(result, { status: 200 });
-    } catch (aiError) {
-      console.error("AI analysis failed:", aiError);
-
-      // AI/API problem -> keep app working
       return NextResponse.json(
         {
-          ...demoAnalysis,
-          aiUsed: false,
+          overall: clampScore(parsed.overall),
+          technical: clampScore(parsed.technical),
+          projects: clampScore(parsed.projects),
+          resume: clampScore(parsed.resume),
+          interview: clampScore(parsed.interview),
+          summary:
+            typeof parsed.summary === "string"
+              ? parsed.summary
+              : fallbackAnalysis.summary,
+          gaps:
+            Array.isArray(parsed.gaps) && parsed.gaps.length >= 3
+              ? parsed.gaps.slice(0, 3).map(normalizeGap)
+              : fallbackAnalysis.gaps,
+          aiUsed: true,
+          mode: "gemini",
         },
-        { status: 200 }
+        {
+          status: 200,
+        }
       );
+    } catch (error) {
+      console.error("Gemini analysis error:", error);
+
+      return NextResponse.json(fallbackAnalysis, {
+        status: 200,
+      });
     }
   } catch (error) {
     console.error("Analyze route error:", error);
 
-    return NextResponse.json(
-      {
-        ...demoAnalysis,
-        aiUsed: false,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json(fallbackAnalysis, {
+      status: 200,
+    });
   }
+}
+
+function clampScore(value: unknown) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return 60;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function normalizeGap(gap: unknown) {
+  const item =
+    gap && typeof gap === "object"
+      ? (gap as Record<string, unknown>)
+      : {};
+
+  const priority =
+    item.priority === "High" ||
+    item.priority === "Medium" ||
+    item.priority === "Low"
+      ? item.priority
+      : "Medium";
+
+  return {
+    title:
+      typeof item.title === "string"
+        ? item.title
+        : "Preparation gap",
+
+    description:
+      typeof item.description === "string"
+        ? item.description
+        : "This area needs focused improvement.",
+
+    priority,
+
+    action:
+      typeof item.action === "string"
+        ? item.action
+        : "Create a focused practice routine for this area.",
+  };
 }

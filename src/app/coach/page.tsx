@@ -1,80 +1,61 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 
 type Message = {
-  id: string;
   role: "user" | "assistant";
   content: string;
 };
 
-type Profile = {
+type StudentProfile = {
   problem?: string;
   goal?: string;
   year?: string;
+  skills?: string;
+  projects?: string;
+  resume?: string;
+  interview?: string;
 };
 
-const starterPrompts = [
-  "Help me improve my placement preparation",
-  "Ask me 5 interview questions",
-  "How should I improve my resume?",
-  "Give me a plan for technical preparation",
-];
-
 export default function CoachPage() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: "assistant",
+      content:
+        "Hi! I’m Student Copilot. Tell me what’s blocking your placement preparation, and I’ll help you turn it into a clear next step.",
+    },
+  ]);
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [studentProfile, setStudentProfile] =
+    useState<StudentProfile | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-
     try {
-      const savedProfile = localStorage.getItem("studentProfile");
+      const saved = localStorage.getItem("studentProfile");
 
-      if (savedProfile) {
-        const parsed = JSON.parse(savedProfile);
-        setProfile(parsed);
+      if (saved) {
+        setStudentProfile(JSON.parse(saved));
       }
     } catch (error) {
-      console.error("Profile loading error:", error);
+      console.error("Failed to load student profile:", error);
     }
-
-    setMessages([
-      {
-        id: "welcome-message",
-        role: "assistant",
-        content:
-          "Hi! I’m Student Copilot. Tell me what is blocking your placement preparation, and I’ll help you turn it into a clear next step.",
-      },
-    ]);
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  }, [messages, loading]);
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-  async function sendMessage(messageText?: string) {
-    const text = (messageText ?? input).trim();
+    const message = input.trim();
 
-    if (!text || loading) {
-      return;
-    }
+    if (!message || loading) return;
 
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
       role: "user",
-      content: text,
+      content: message,
     };
 
-    setMessages((current) => [...current, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
 
@@ -85,41 +66,45 @@ export default function CoachPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: text,
-          problem: profile?.problem || "Placement preparation",
-          goal: profile?.goal || "Get placement ready",
-          year: profile?.year || "College student",
+          message,
+          problem:
+            studentProfile?.problem || "Placement preparation",
+          goal:
+            studentProfile?.goal || "Get placement ready",
+          year:
+            studentProfile?.year || "College student",
         }),
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error("Coach request failed");
+        throw new Error(
+          data?.reply || "AI Coach request failed"
+        );
       }
 
-      const reply =
-        data?.reply ||
-        data?.message ||
-        "I understand. Let's break that problem into one practical action you can complete today.";
+      const aiReply =
+        typeof data?.reply === "string" && data.reply.trim()
+          ? data.reply.trim()
+          : "I couldn't generate a response. Please try again.";
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: String(reply),
-      };
-
-      setMessages((current) => [...current, assistantMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: aiReply,
+        },
+      ]);
     } catch (error) {
       console.error("Coach error:", error);
 
-      setMessages((current) => [
-        ...current,
+      setMessages((prev) => [
+        ...prev,
         {
-          id: `fallback-${Date.now()}`,
           role: "assistant",
           content:
-            "I can still help you plan your next step. Start with one specific task today: improve one skill, one resume section, one project feature, or practice one interview question.",
+            "I couldn't connect to the AI Coach right now. Please try again.",
         },
       ]);
     } finally {
@@ -127,428 +112,595 @@ export default function CoachPage() {
     }
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    sendMessage();
-  }
-
-  function clearChat() {
+  function startNewChat() {
     setMessages([
       {
-        id: `welcome-${Date.now()}`,
         role: "assistant",
         content:
-          "Fresh start. Tell me what you want to improve for your placement preparation.",
+          "Hi! I’m Student Copilot. Tell me what you want to improve for your placement preparation.",
       },
     ]);
+
+    setInput("");
   }
 
-  if (!mounted) {
-    return (
-      <main className="min-h-screen bg-[#f6f8fb] p-8">
-        <div className="mx-auto max-w-7xl animate-pulse">
-          <div className="h-8 w-56 rounded bg-slate-200" />
-          <div className="mt-8 h-[650px] rounded-3xl bg-slate-200" />
-        </div>
-      </main>
-    );
+  function useSuggestion(text: string) {
+    setInput(text);
   }
+
+  const suggestions = [
+    "Help me improve my placement preparation",
+    "Ask me 5 interview questions",
+    "How should I improve my resume?",
+    "Give me a plan for technical interviews",
+  ];
 
   return (
-    <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <div className="flex min-h-screen">
-        {/* SIDEBAR */}
-        <aside className="hidden w-[250px] shrink-0 border-r border-slate-800 bg-[#111827] px-5 py-6 lg:block">
-          <div className="mb-10 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-lg shadow-indigo-500/20">
-              <span className="text-sm font-bold">SC</span>
+    <main className="relative min-h-screen overflow-hidden text-slate-900">
+
+      {/* =====================================================
+          ANIMATED VIDEO BACKGROUND
+      ====================================================== */}
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        className="fixed inset-0 z-0 h-full w-full object-cover"
+      >
+        <source src="/dashboard-bg.mp4" type="video/mp4" />
+      </video>
+
+      {/* LIGHT OVERLAY - video stays clearly visible */}
+      <div className="fixed inset-0 z-0 bg-white/25" />
+
+      {/* VERY SOFT EXTRA LAYER */}
+      <div className="fixed inset-0 z-0 bg-white/10" />
+
+
+      {/* =====================================================
+          PAGE CONTENT
+      ====================================================== */}
+      <div className="relative z-10 flex min-h-screen">
+
+        {/* ===================================================
+            SIDEBAR
+        ==================================================== */}
+        <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-slate-950/95 p-5 text-white shadow-2xl backdrop-blur-xl md:block">
+
+          {/* Logo */}
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500 text-xs font-bold shadow-lg shadow-indigo-500/30">
+              SC
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-white">Student</p>
-              <p className="text-xs text-slate-400">Copilot</p>
+              <div className="text-sm font-bold leading-tight">
+                Student
+              </div>
+
+              <div className="text-xs text-slate-400">
+                Copilot
+              </div>
             </div>
           </div>
 
+          {/* Navigation */}
           <nav className="space-y-2">
-            <NavItem href="/" icon="⌂" label="Dashboard" />
-            <NavItem href="/problem" icon="✦" label="My Problem" />
-            <NavItem href="/analysis" icon="◉" label="AI Analysis" />
-            <NavItem href="/plan" icon="✓" label="Action Plan" />
-            <NavItem href="/coach" icon="💬" label="AI Coach" active />
-            <NavItem href="/progress" icon="↗" label="Progress" />
-            <NavItem href="/evidence" icon="◎" label="Evidence" />
+
+            <a
+              href="/"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ◌
+              </span>
+              Dashboard
+            </a>
+
+            <a
+              href="/problem"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ✦
+              </span>
+              My Problem
+            </a>
+
+            <a
+              href="/analysis"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ◎
+              </span>
+              AI Analysis
+            </a>
+
+            <a
+              href="/plan"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ✓
+              </span>
+              Action Plan
+            </a>
+
+            {/* Active */}
+            <a
+              href="/coach"
+              className="flex items-center gap-3 rounded-xl bg-indigo-600 px-3 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-900/30"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500 text-xs">
+                ●
+              </span>
+              AI Coach
+            </a>
+
+            <a
+              href="/progress"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ↗
+              </span>
+              Progress
+            </a>
+
+            <a
+              href="/evidence"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs">
+                ◎
+              </span>
+              Evidence
+            </a>
+
           </nav>
 
-          <div className="mt-10 rounded-2xl border border-indigo-400/20 bg-indigo-500/10 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-indigo-300">
+          {/* Sidebar bottom card */}
+          <div className="mt-10 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-indigo-300">
               AI Coach
-            </p>
+            </div>
 
-            <p className="mt-2 text-sm leading-5 text-slate-300">
+            <p className="mt-2 text-xs leading-5 text-slate-300">
               Ask, practice, improve, repeat.
             </p>
           </div>
+
         </aside>
 
-        {/* MAIN */}
-        <section className="flex min-w-0 flex-1 flex-col">
-          {/* HEADER */}
-          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500">
-                Student Copilot
-              </p>
 
-              <h1 className="mt-1 text-xl font-bold sm:text-2xl">
-                AI Coach
-              </h1>
-            </div>
+        {/* ===================================================
+            MAIN AREA
+        ==================================================== */}
+        <section className="flex min-h-screen min-w-0 flex-1 flex-col">
 
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={clearChat}
-                className="hidden rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 sm:block"
-              >
-                New Chat
-              </button>
+          {/* Header */}
+          <header className="border-b border-white/60 bg-white/60 px-5 py-4 backdrop-blur-md md:px-8">
+            <div className="flex items-center justify-between gap-4">
 
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
-                K
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-indigo-600">
+                  Student Copilot
+                </div>
+
+                <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+                  AI Coach
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-3">
+
+                <button
+                  type="button"
+                  onClick={startNewChat}
+                  className="rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-white"
+                >
+                  New Chat
+                </button>
+
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-lg">
+                  K
+                </div>
+
               </div>
             </div>
           </header>
 
-          {/* CONTENT */}
-          <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-5 py-6 lg:grid-cols-[1fr_320px] sm:px-8">
-            {/* CHAT */}
-            <section className="flex min-h-[calc(100vh-150px)] min-w-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              {/* CHAT TOP */}
-              <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
-                <div className="flex items-center gap-3">
-                  <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20">
+
+          {/* =================================================
+              MAIN CONTENT
+          ================================================== */}
+          <div className="flex flex-1 flex-col px-4 py-5 md:px-8 md:py-7">
+
+            <div className="mx-auto grid w-full max-w-7xl flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+
+              {/* =================================================
+                  CHAT CARD
+              ================================================== */}
+              <div className="flex min-h-[680px] flex-col overflow-hidden rounded-3xl border border-white/80 bg-white/88 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+
+                {/* Chat Header */}
+                <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-200">
                     ✦
-                    <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+
+                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-400" />
                   </div>
 
                   <div>
-                    <h2 className="font-semibold">Student Copilot AI</h2>
-                    <p className="text-xs text-slate-400">
+                    <div className="text-sm font-bold text-slate-900">
+                      Student Copilot AI
+                    </div>
+
+                    <div className="text-xs text-slate-400">
                       Personal placement assistant
-                    </p>
+                    </div>
                   </div>
+
                 </div>
-              </div>
 
-              {/* CONTEXT */}
-              {profile && (
-                <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-3 sm:px-6">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Context
-                    </span>
 
-                    {profile.problem && (
-                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
-                        {profile.problem}
-                      </span>
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto px-5 py-6 md:px-8">
+
+                  <div className="space-y-5">
+
+                    {messages.map((message, index) => (
+
+                      <div
+                        key={`${message.role}-${index}`}
+                        className={`flex ${
+                          message.role === "user"
+                            ? "justify-end"
+                            : "justify-start"
+                        }`}
+                      >
+
+                        <div
+                          className={`flex max-w-[88%] gap-3 ${
+                            message.role === "user"
+                              ? "flex-row-reverse"
+                              : ""
+                          }`}
+                        >
+
+                          {/* Avatar */}
+                          <div
+                            className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[10px] font-bold ${
+                              message.role === "user"
+                                ? "bg-slate-900 text-white"
+                                : "bg-indigo-50 text-indigo-600"
+                            }`}
+                          >
+                            {message.role === "user" ? "K" : "AI"}
+                          </div>
+
+
+                          {/* Message Bubble */}
+                          <div
+                            className={`rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                              message.role === "user"
+                                ? "bg-indigo-600 text-white"
+                                : "border border-slate-200 bg-slate-100 text-slate-700"
+                            }`}
+                          >
+
+                            {message.role === "assistant" && (
+                              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                                AI
+                              </div>
+                            )}
+
+                            <div className="whitespace-pre-wrap">
+                              {message.content}
+                            </div>
+
+                          </div>
+
+                        </div>
+
+                      </div>
+
+                    ))}
+
+
+                    {/* Loading */}
+                    {loading && (
+                      <div className="flex justify-start">
+
+                        <div className="flex items-start gap-3">
+
+                          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-[10px] font-bold text-indigo-600">
+                            AI
+                          </div>
+
+                          <div className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3">
+
+                            <div className="flex items-center gap-1.5">
+
+                              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-0.3s]" />
+
+                              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-0.15s]" />
+
+                              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" />
+
+                            </div>
+
+                          </div>
+
+                        </div>
+
+                      </div>
                     )}
 
-                    {profile.goal && (
-                      <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600">
-                        {profile.goal}
-                      </span>
-                    )}
                   </div>
-                </div>
-              )}
 
-              {/* MESSAGES */}
-              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-6 sm:px-6">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${
-                      message.role === "user"
-                        ? "justify-end"
-                        : "justify-start"
-                    }`}
+                </div>
+
+
+                {/* Suggestions */}
+                <div className="border-t border-slate-200 px-5 py-3">
+
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+
+                    {suggestions.map((suggestion) => (
+
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => useSuggestion(suggestion)}
+                        className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                      >
+                        {suggestion}
+                      </button>
+
+                    ))}
+
+                  </div>
+
+                </div>
+
+
+                {/* Input */}
+                <div className="px-5 pb-5 pt-2">
+
+                  <form
+                    onSubmit={sendMessage}
+                    className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50"
                   >
-                    {message.role === "assistant" && (
-                      <div className="mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-sm font-bold text-indigo-600">
-                        AI
-                      </div>
-                    )}
 
-                    <div
-                      className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                        message.role === "user"
-                          ? "rounded-br-md bg-slate-900 text-white"
-                          : "rounded-bl-md bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {message.content}
-                    </div>
-                  </div>
-                ))}
-
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-sm font-bold text-indigo-600">
-                      AI
-                    </div>
-
-                    <div className="rounded-2xl rounded-bl-md bg-slate-100 px-5 py-4">
-                      <div className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 animate-bounce rounded-full bg-slate-400" />
-                        <span
-                          className="h-2 w-2 animate-bounce rounded-full bg-slate-400"
-                          style={{ animationDelay: "120ms" }}
-                        />
-                        <span
-                          className="h-2 w-2 animate-bounce rounded-full bg-slate-400"
-                          style={{ animationDelay: "240ms" }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* SUGGESTIONS */}
-              <div className="border-t border-slate-100 px-5 py-3 sm:px-6">
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {starterPrompts.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => sendMessage(prompt)}
-                      disabled={loading}
-                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* INPUT */}
-              <form
-                onSubmit={handleSubmit}
-                className="border-t border-slate-200 bg-white p-4 sm:p-5"
-              >
-                <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-indigo-300 focus-within:bg-white">
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        sendMessage();
+                    <input
+                      value={input}
+                      onChange={(event) =>
+                        setInput(event.target.value)
                       }
-                    }}
-                    rows={1}
-                    placeholder="Ask your placement coach..."
-                    className="max-h-32 min-h-[42px] flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400"
-                    disabled={loading}
-                  />
+                      disabled={loading}
+                      placeholder="Ask your placement coach..."
+                      className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+                    />
 
-                  <button
-                    type="submit"
-                    disabled={!input.trim() || loading}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || loading}
+                      aria-label="Send message"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+                    >
+                      →
+                    </button>
+
+                  </form>
+
+                  <p className="mt-2 text-center text-[10px] text-slate-400">
+                    AI can make mistakes. Use its suggestions as
+                    preparation support and verify important
+                    information.
+                  </p>
+
+                </div>
+
+              </div>
+
+
+              {/* =================================================
+                  RIGHT SIDEBAR
+              ================================================== */}
+              <div className="space-y-4">
+
+                {/* AI Coach Card */}
+                <div className="rounded-3xl border border-white/80 bg-white/88 p-4 shadow-[0_15px_45px_rgba(15,23,42,0.10)] backdrop-blur-xl">
+
+                  <div className="flex items-center gap-3">
+
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                      ✦
+                    </div>
+
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">
+                        Your AI Coach
+                      </div>
+
+                      <div className="text-xs text-slate-400">
+                        Placement preparation
+                      </div>
+                    </div>
+
+                  </div>
+
+
+                  <div className="mt-5 space-y-3">
+
+                    <CoachFeature text="Personalized guidance" />
+
+                    <CoachFeature text="Interview practice" />
+
+                    <CoachFeature text="Resume improvement" />
+
+                    <CoachFeature text="Technical preparation" />
+
+                  </div>
+
+                </div>
+
+
+                {/* Quick Actions */}
+                <div className="rounded-3xl border border-white/80 bg-white/88 p-4 shadow-[0_15px_45px_rgba(15,23,42,0.10)] backdrop-blur-xl">
+
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
+                    Quick Actions
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+
+                    <QuickAction
+                      number="01"
+                      label="Practice interview"
+                      onClick={() =>
+                        useSuggestion(
+                          "Give me an interview question and evaluate my answer."
+                        )
+                      }
+                    />
+
+                    <QuickAction
+                      number="02"
+                      label="Improve resume"
+                      onClick={() =>
+                        useSuggestion(
+                          "How should I improve my resume for software developer placements?"
+                        )
+                      }
+                    />
+
+                    <QuickAction
+                      number="03"
+                      label="Fix a weak skill"
+                      onClick={() =>
+                        useSuggestion(
+                          "Help me identify and improve my weakest technical skill."
+                        )
+                      }
+                    />
+
+                  </div>
+
+                </div>
+
+
+                {/* Action Plan */}
+                <div className="rounded-3xl border border-indigo-100 bg-indigo-50/90 p-4 shadow-[0_15px_45px_rgba(79,70,229,0.08)] backdrop-blur-xl">
+
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
+                    Your Action Plan
+                  </div>
+
+                  <h3 className="mt-2 text-base font-bold text-slate-900">
+                    Turn advice into action.
+                  </h3>
+
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    Complete your next task and keep building
+                    your placement readiness.
+                  </p>
+
+                  <a
+                    href="/plan"
+                    className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800"
                   >
-                    →
-                  </button>
+                    Open 7-Day Plan →
+                  </a>
+
                 </div>
 
-                <p className="mt-2 text-center text-[11px] text-slate-400">
-                  AI can make mistakes. Use its suggestions as preparation
-                  support and verify important information.
-                </p>
-              </form>
-            </section>
 
-            {/* RIGHT PANEL */}
-            <aside className="space-y-5">
-              {/* COACH PROFILE */}
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-lg text-indigo-600">
-                    ✦
+                {/* AI Transparency */}
+                <div className="rounded-2xl border border-white/70 bg-white/70 p-4 backdrop-blur-xl">
+
+                  <div className="text-[10px] font-semibold text-slate-500">
+                    AI Transparency
                   </div>
 
-                  <div>
-                    <h3 className="font-semibold">Your AI Coach</h3>
-                    <p className="text-xs text-slate-400">
-                      Placement preparation
-                    </p>
-                  </div>
+                  <p className="mt-1 text-[10px] leading-4 text-slate-400">
+                    You are chatting with an AI assistant. Avoid
+                    entering passwords, API keys or other sensitive
+                    information.
+                  </p>
+
                 </div>
 
-                <div className="mt-5 space-y-3">
-                  <CoachPoint text="Personalized guidance" />
-                  <CoachPoint text="Interview practice" />
-                  <CoachPoint text="Resume improvement" />
-                  <CoachPoint text="Technical preparation" />
-                </div>
               </div>
 
-              {/* QUICK ACTIONS */}
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-500">
-                  Quick Actions
-                </p>
+            </div>
 
-                <div className="mt-4 space-y-2">
-                  <QuickAction
-                    icon="01"
-                    title="Practice interview"
-                    onClick={() =>
-                      sendMessage(
-                        "Start a mock placement interview and ask me questions one at a time."
-                      )
-                    }
-                  />
-
-                  <QuickAction
-                    icon="02"
-                    title="Improve resume"
-                    onClick={() =>
-                      sendMessage(
-                        "Help me improve my resume for placements."
-                      )
-                    }
-                  />
-
-                  <QuickAction
-                    icon="03"
-                    title="Fix a weak skill"
-                    onClick={() =>
-                      sendMessage(
-                        "Help me create a focused plan to improve my weakest technical skill."
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* PLAN LINK */}
-              <div className="rounded-3xl border border-indigo-100 bg-indigo-50/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-                  Your Action Plan
-                </p>
-
-                <h3 className="mt-2 text-lg font-bold">
-                  Turn advice into action.
-                </h3>
-
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Complete your next task and keep building your placement
-                  readiness.
-                </p>
-
-                <Link
-                  href="/plan"
-                  className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Open 7-Day Plan →
-                </Link>
-              </div>
-
-              {/* AI NOTICE */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-600">
-                  AI Transparency
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-slate-400">
-                  You are chatting with an AI assistant. Avoid entering
-                  passwords, API keys or other sensitive information.
-                </p>
-              </div>
-            </aside>
           </div>
+
         </section>
+
       </div>
     </main>
   );
 }
 
-function NavItem({
-  href,
-  icon,
-  label,
-  active = false,
-}: {
-  href: string;
-  icon: string;
-  label: string;
-  active?: boolean;
-}) {
+
+/* ============================================================
+   SMALL UI COMPONENTS
+============================================================ */
+
+function CoachFeature({ text }: { text: string }) {
   return (
-    <Link
-      href={href}
-      className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${
-        active
-          ? "bg-indigo-500/15 text-white"
-          : "text-slate-400 hover:bg-white/5 hover:text-white"
-      }`}
-    >
-      <span
-        className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm ${
-          active
-            ? "bg-indigo-500 text-white"
-            : "bg-white/5 text-slate-400"
-        }`}
-      >
-        {icon}
+    <div className="flex items-center gap-2.5 text-xs text-slate-600">
+
+      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-50 text-[10px] font-bold text-emerald-500">
+        ✓
       </span>
 
-      {label}
-    </Link>
-  );
-}
+      <span>{text}</span>
 
-function CoachPoint({ text }: { text: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-xs text-emerald-600">
-        ✓
-      </div>
-
-      <span className="text-sm text-slate-600">{text}</span>
     </div>
   );
 }
 
+
 function QuickAction({
-  icon,
-  title,
+  number,
+  label,
   onClick,
 }: {
-  icon: string;
-  title: string;
+  number: string;
+  label: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl border border-slate-100 p-3 text-left transition hover:border-indigo-100 hover:bg-indigo-50"
+      className="group flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50"
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500">
-        {icon}
+
+      <div className="flex items-center gap-3">
+
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-[9px] font-bold text-slate-500">
+          {number}
+        </span>
+
+        <span className="text-xs font-medium text-slate-700">
+          {label}
+        </span>
+
+      </div>
+
+      <span className="text-sm text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-indigo-500">
+        →
       </span>
 
-      <span className="flex-1 text-sm font-medium text-slate-700">
-        {title}
-      </span>
-
-      <span className="text-slate-400">→</span>
     </button>
   );
 }
