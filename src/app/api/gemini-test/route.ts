@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
+import { connection } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
 export async function GET() {
+  // Make sure this route only runs when a real request arrives.
+  // It must not call Gemini during the production build.
+  await connection();
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
 
@@ -9,38 +14,46 @@ export async function GET() {
       return NextResponse.json(
         {
           ok: false,
-          error: "GEMINI_API_KEY is missing",
+          error: "GEMINI_API_KEY is not configured",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
+
+    const model =
+      process.env.GEMINI_MODEL || "gemini-3.7-flash";
 
     const ai = new GoogleGenAI({
       apiKey,
     });
 
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-      contents: "Reply with exactly: Gemini connection successful",
+      model,
+      contents:
+        "Reply with exactly: Gemini connection successful",
     });
+
+    const text = response.text?.trim();
 
     return NextResponse.json({
       ok: true,
-      message: response.text || "No text returned",
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      model,
+      message: text || "Gemini returned an empty response",
     });
   } catch (error) {
     console.error("Gemini test error:", error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : String(error);
+
     return NextResponse.json(
       {
         ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unknown Gemini error",
+        error: message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
